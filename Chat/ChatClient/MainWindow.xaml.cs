@@ -30,7 +30,6 @@ namespace ChatClient
         private async void Button_Click(object sender, RoutedEventArgs e)
         {
             _clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            _clientSocket.Bind(new IPEndPoint(IPAddress.Any, 0));
             await _clientSocket.ConnectAsync("localhost", 33333);
 
             Log.Text += $"Connected to {_clientSocket.RemoteEndPoint}\n";
