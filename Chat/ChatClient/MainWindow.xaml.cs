@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO.Pipelines;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -33,8 +34,46 @@ namespace ChatClient
             await _clientSocket.ConnectAsync("localhost", 33333);
 
             Log.Text += $"Connected to {_clientSocket.RemoteEndPoint}\n";
+
+            var pipe = new Pipe();
+            _ = PipelineToSocketAsync(pipe.Reader, _clientSocket);
+
+            var message = "Hello, server!";
+            var messageBytes = Encoding.UTF8.GetBytes(message);
+            var memory = pipe.Writer.GetMemory(messageBytes.Length);
+            messageBytes.CopyTo(memory);
+            pipe.Writer.Advance(messageBytes.Length);
+            await pipe.Writer.FlushAsync();
         }
 
-        private Socket _clientSocket;
+        private async Task PipelineToSocketAsync(PipeReader pipeReader, Socket socket)
+        {
+            while (true)
+            {
+                ReadResult result = await pipeReader.ReadAsync();
+                var buffer = result.Buffer;
+
+                while (true)
+                {
+                    var memory = buffer.First;
+                    if (memory.IsEmpty)
+                        break;
+                    var bytesSent = await socket.SendAsync(memory, SocketFlags.None);
+                    buffer = buffer.Slice(bytesSent);
+                    if (bytesSent != memory.Length)
+                        break;
+                }
+
+                pipeReader.AdvanceTo(buffer.Start);
+
+                if (result.IsCompleted)
+                {
+                    // TODO: handle completion
+                    break;
+                }
+            }
+        }
+
+        private Socket? _clientSocket;
     }
 }
