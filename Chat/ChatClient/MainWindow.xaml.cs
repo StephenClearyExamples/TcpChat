@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Linq;
@@ -40,9 +42,11 @@ namespace ChatClient
 
             var message = "Hello, server!";
             var messageBytes = Encoding.UTF8.GetBytes(message);
-            var memory = pipe.Writer.GetMemory(messageBytes.Length);
-            messageBytes.CopyTo(memory);
-            pipe.Writer.Advance(messageBytes.Length);
+            var memory = pipe.Writer.GetMemory(messageBytes.Length + 8);
+            BinaryPrimitives.WriteUInt32BigEndian(memory.Span, (uint)messageBytes.Length + 4);
+            BinaryPrimitives.WriteUInt32BigEndian(memory.Span.Slice(4), 0);
+            messageBytes.CopyTo(memory.Span.Slice(8));
+            pipe.Writer.Advance(messageBytes.Length + 8);
             await pipe.Writer.FlushAsync();
         }
 
@@ -51,7 +55,7 @@ namespace ChatClient
             while (true)
             {
                 ReadResult result = await pipeReader.ReadAsync();
-                var buffer = result.Buffer;
+                ReadOnlySequence<byte> buffer = result.Buffer;
 
                 while (true)
                 {
