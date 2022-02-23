@@ -38,16 +38,9 @@ namespace ChatClient
 
             Log.Text += $"Connected to {_clientSocket.RemoteEndPoint}\n";
 
-            var pipelineSocket = new PipelineSocket(_clientSocket);
+            var chatConnection = new ChatConnection(new PipelineSocket(_clientSocket));
 
-            var message = "Hello, server!";
-            var messageBytes = Encoding.UTF8.GetBytes(message);
-            var memory = pipelineSocket.OutputPipe.GetMemory(messageBytes.Length + 8);
-            BinaryPrimitives.WriteUInt32BigEndian(memory.Span, (uint)messageBytes.Length + 4);
-            BinaryPrimitives.WriteUInt32BigEndian(memory.Span.Slice(4), 0);
-            messageBytes.CopyTo(memory.Span.Slice(8));
-            pipelineSocket.OutputPipe.Advance(messageBytes.Length + 8);
-            await pipelineSocket.OutputPipe.FlushAsync();
+            await chatConnection.SendMessage(new ChatMessage("Hello, server!"));
         }
 
         private Socket? _clientSocket;
