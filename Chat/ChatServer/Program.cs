@@ -71,11 +71,12 @@ IReadOnlyList<string> ParseMessages(ReadOnlySequence<byte> buffer, PipeReader pi
     var result = new List<string>();
     var sequenceReader = new SequenceReader<byte>(buffer);
 
-    while (true)
+    while (sequenceReader.Remaining != 0)
     {
+        var beginOfMessagePosition = sequenceReader.Position;
         if (!sequenceReader.TryReadBigEndian(out int signedLengthPrefix))
         {
-            pipeReader.AdvanceTo(buffer.Start, buffer.End);
+            pipeReader.AdvanceTo(beginOfMessagePosition, buffer.End);
             break;
         }
         var lengthPrefix = (uint)signedLengthPrefix;
@@ -84,7 +85,7 @@ IReadOnlyList<string> ParseMessages(ReadOnlySequence<byte> buffer, PipeReader pi
 
         if (!sequenceReader.TryReadBigEndian(out int messageType))
         {
-            pipeReader.AdvanceTo(buffer.Start, buffer.End);
+            pipeReader.AdvanceTo(beginOfMessagePosition, buffer.End);
             break;
         }
 
@@ -94,17 +95,21 @@ IReadOnlyList<string> ParseMessages(ReadOnlySequence<byte> buffer, PipeReader pi
             if (!sequenceReader.TryCopyTo(chatMessageBytes))
             {
                 // TODO: Ensure pipeline has enough room for MaxMessageSize bytes.
-                pipeReader.AdvanceTo(buffer.Start, buffer.End);
+                pipeReader.AdvanceTo(beginOfMessagePosition, buffer.End);
                 break;
             }
 
-            pipeReader.AdvanceTo(sequenceReader.Position);
+            // Unlike other SequenceReader methods, TryCopyTo does *not* advance the position.
+            sequenceReader.Advance(chatMessageBytes.Length);
+
             result.Add(Encoding.UTF8.GetString(chatMessageBytes));
         }
         else
         {
             throw new InvalidOperationException("Unknown message type");
         }
+
+        pipeReader.AdvanceTo(sequenceReader.Position);
     }
 
     return result;
