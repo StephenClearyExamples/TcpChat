@@ -1,4 +1,5 @@
 ﻿// See https://aka.ms/new-console-template for more information
+using ChatApi;
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Net;
@@ -26,10 +27,9 @@ const uint MaxMessageSize = 65536;
 
 async Task ProcessSocket(Socket socket)
 {
-    var pipe = new Pipe();
-    var socketToPipelineTask = SocketToPipelineAsync(socket, pipe.Writer);
-    var handlePipelineTask = HandlePipelineAsync(pipe.Reader);
-    await Task.WhenAll(socketToPipelineTask, handlePipelineTask);
+    var pipelineSocket = new PipelineSocket(socket);
+    var handlePipelineTask = HandlePipelineAsync(pipelineSocket.InputPipe);
+    await Task.WhenAll(pipelineSocket.MainTask, handlePipelineTask);
 
     async Task HandlePipelineAsync(PipeReader pipeReader)
     {
@@ -46,23 +46,6 @@ async Task ProcessSocket(Socket socket)
                 break;
         }
 
-    }
-
-    async Task SocketToPipelineAsync(Socket socket, PipeWriter pipeWriter)
-    {
-        while (true)
-        {
-            var buffer = pipeWriter.GetMemory();
-            var bytesRead = await socket.ReceiveAsync(buffer, SocketFlags.None);
-            if (bytesRead == 0) // Graceful close
-            {
-                pipeWriter.Complete();
-                break;
-            }
-
-            pipeWriter.Advance(bytesRead);
-            await pipeWriter.FlushAsync();
-        }
     }
 }
 

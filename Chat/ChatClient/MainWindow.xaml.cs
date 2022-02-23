@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ChatApi;
+using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
@@ -37,45 +38,16 @@ namespace ChatClient
 
             Log.Text += $"Connected to {_clientSocket.RemoteEndPoint}\n";
 
-            var pipe = new Pipe();
-            _ = PipelineToSocketAsync(pipe.Reader, _clientSocket);
+            var pipelineSocket = new PipelineSocket(_clientSocket);
 
             var message = "Hello, server!";
             var messageBytes = Encoding.UTF8.GetBytes(message);
-            var memory = pipe.Writer.GetMemory(messageBytes.Length + 8);
+            var memory = pipelineSocket.OutputPipe.GetMemory(messageBytes.Length + 8);
             BinaryPrimitives.WriteUInt32BigEndian(memory.Span, (uint)messageBytes.Length + 4);
             BinaryPrimitives.WriteUInt32BigEndian(memory.Span.Slice(4), 0);
             messageBytes.CopyTo(memory.Span.Slice(8));
-            pipe.Writer.Advance(messageBytes.Length + 8);
-            await pipe.Writer.FlushAsync();
-        }
-
-        private async Task PipelineToSocketAsync(PipeReader pipeReader, Socket socket)
-        {
-            while (true)
-            {
-                ReadResult result = await pipeReader.ReadAsync();
-                ReadOnlySequence<byte> buffer = result.Buffer;
-
-                while (true)
-                {
-                    var memory = buffer.First;
-                    if (memory.IsEmpty)
-                        break;
-                    var bytesSent = await socket.SendAsync(memory, SocketFlags.None);
-                    buffer = buffer.Slice(bytesSent);
-                    if (bytesSent != memory.Length)
-                        break;
-                }
-
-                pipeReader.AdvanceTo(buffer.Start);
-
-                if (result.IsCompleted)
-                {
-                    // TODO: handle completion
-                    break;
-                }
-            }
+            pipelineSocket.OutputPipe.Advance(messageBytes.Length + 8);
+            await pipelineSocket.OutputPipe.FlushAsync();
         }
 
         private Socket? _clientSocket;
