@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
+using System.Net;
 using System.Net.Sockets;
 
 namespace ChatApi
@@ -12,6 +13,7 @@ namespace ChatApi
         public PipelineSocket(Socket connectedSocket, uint maxMessageSize = 65536)
         {
             Socket = connectedSocket;
+            RemoteEndPoint = (IPEndPoint) connectedSocket.RemoteEndPoint!;
             MaxMessageSize = maxMessageSize;
             _outputPipe = new Pipe();
             _inputPipe = new Pipe(new PipeOptions(pauseWriterThreshold: maxMessageSize + 4));
@@ -26,6 +28,8 @@ namespace ChatApi
         public Task MainTask { get; }
 
         public uint MaxMessageSize { get; }
+
+        public IPEndPoint RemoteEndPoint { get; }
 
         public PipeWriter OutputPipe => _outputPipe.Writer;
         public PipeReader InputPipe => _inputPipe.Reader;

@@ -4,8 +4,10 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Linq;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace ChatApi
@@ -13,50 +15,62 @@ namespace ChatApi
     public sealed class ChatConnection
     {
         private readonly PipelineSocket _pipelineSocket;
+        private readonly Channel<IMessage> _inputChannel;
+        private readonly Channel<IMessage> _outputChannel;
 
         public ChatConnection(PipelineSocket pipelineSocket)
         {
             _pipelineSocket = pipelineSocket;
-            MainTask = Task.WhenAll(pipelineSocket.MainTask, HandlePipelineAsync());
+            _inputChannel = Channel.CreateBounded<IMessage>(4);
+            _outputChannel = Channel.CreateBounded<IMessage>(4);
+            MainTask = Task.WhenAll(pipelineSocket.MainTask,
+                PipelineToChannelAsync(),
+                ChannelToPipelineAsync());
         }
 
         public Socket Socket => _pipelineSocket.Socket;
         public Task MainTask { get; }
+        public IPEndPoint RemoteEndPoint => _pipelineSocket.RemoteEndPoint;
 
         public async Task SendMessage(IMessage message)
         {
-            // TODO: currently not thread safe!
-            if (message is ChatMessage chatMessage)
-            {
-                var messageBytes = Encoding.UTF8.GetBytes(chatMessage.Text);
-                var memory = _pipelineSocket.OutputPipe.GetMemory(messageBytes.Length + 8);
-                BinaryPrimitives.WriteUInt32BigEndian(memory.Span, (uint)messageBytes.Length + 4);
-                BinaryPrimitives.WriteUInt32BigEndian(memory.Span.Slice(4), 0);
-                messageBytes.CopyTo(memory.Span.Slice(8));
-                _pipelineSocket.OutputPipe.Advance(messageBytes.Length + 8);
-            }
-            else
-            {
-                throw new InvalidOperationException("Unknown message type.");
-            }
-
-            await _pipelineSocket.OutputPipe.FlushAsync();
+            await _outputChannel.Writer.WriteAsync(message);
         }
 
-        private async Task HandlePipelineAsync()
+        public IAsyncEnumerable<IMessage> InputMessages => _inputChannel.Reader.ReadAllAsync();
+
+        private async Task ChannelToPipelineAsync()
+        {
+            await foreach (var message in _outputChannel.Reader.ReadAllAsync())
+            {
+                if (message is ChatMessage chatMessage)
+                {
+                    var messageBytes = Encoding.UTF8.GetBytes(chatMessage.Text);
+                    var memory = _pipelineSocket.OutputPipe.GetMemory(messageBytes.Length + 8);
+                    BinaryPrimitives.WriteUInt32BigEndian(memory.Span, (uint)messageBytes.Length + 4);
+                    BinaryPrimitives.WriteUInt32BigEndian(memory.Span.Slice(4), 0);
+                    messageBytes.CopyTo(memory.Span.Slice(8));
+                    _pipelineSocket.OutputPipe.Advance(messageBytes.Length + 8);
+                }
+                else
+                {
+                    throw new InvalidOperationException("Unknown message type.");
+                }
+
+                await _pipelineSocket.OutputPipe.FlushAsync();
+            }
+
+            _pipelineSocket.OutputPipe.Complete();
+        }
+
+        private async Task PipelineToChannelAsync()
         {
             while (true)
             {
                 var data = await _pipelineSocket.InputPipe.ReadAsync();
 
                 foreach (var message in ParseMessages(data.Buffer))
-                {
-                    // TODO: remove hardcoded processing!
-                    if (message is ChatMessage chatMessage)
-                        Console.WriteLine($"Got message from {Socket.RemoteEndPoint}: {chatMessage.Text}");
-                    else
-                        Console.WriteLine($"Got unknown message from {Socket.RemoteEndPoint}.");
-                }
+                    await _inputChannel.Writer.WriteAsync(message);
 
                 if (data.IsCompleted)
                     break;

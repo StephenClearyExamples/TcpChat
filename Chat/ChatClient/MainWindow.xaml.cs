@@ -26,6 +26,8 @@ namespace ChatClient
     /// </summary>
     public partial class MainWindow : Window
     {
+        private ChatConnection? _chatConnection;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -33,16 +35,25 @@ namespace ChatClient
 
         private async void Button_Click(object sender, RoutedEventArgs e)
         {
-            _clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            await _clientSocket.ConnectAsync("localhost", 33333);
+            var clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            await clientSocket.ConnectAsync("localhost", 33333);
 
-            Log.Text += $"Connected to {_clientSocket.RemoteEndPoint}\n";
+            Log.Text += $"Connected to {clientSocket.RemoteEndPoint}\n";
 
-            var chatConnection = new ChatConnection(new PipelineSocket(_clientSocket));
-
-            await chatConnection.SendMessage(new ChatMessage("Hello, server!"));
+            _chatConnection = new ChatConnection(new PipelineSocket(clientSocket));
         }
 
-        private Socket? _clientSocket;
+        private async void Button_Click_1(object sender, RoutedEventArgs e)
+        {
+            if (_chatConnection == null)
+            {
+                Log.Text += "No connection!\n";
+            }
+            else
+            {
+                await _chatConnection.SendMessage(new ChatMessage(chatMessageTextBox.Text));
+                Log.Text += $"Sent message: {chatMessageTextBox.Text}\n";
+            }
+        }
     }
 }
