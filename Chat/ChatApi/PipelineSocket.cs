@@ -9,11 +9,12 @@ namespace ChatApi
         private readonly Pipe _outputPipe;
         private readonly Pipe _inputPipe;
 
-        public PipelineSocket(Socket connectedSocket)
+        public PipelineSocket(Socket connectedSocket, uint maxMessageSize = 65536)
         {
             Socket = connectedSocket;
+            MaxMessageSize = maxMessageSize;
             _outputPipe = new Pipe();
-            _inputPipe = new Pipe();
+            _inputPipe = new Pipe(new PipeOptions(pauseWriterThreshold: maxMessageSize + 4));
 
             MainTask = Task.WhenAll(
                 PipelineToSocketAsync(_outputPipe.Reader, Socket),
@@ -23,6 +24,8 @@ namespace ChatApi
         public Socket Socket { get; }
 
         public Task MainTask { get; }
+
+        public uint MaxMessageSize { get; }
 
         public PipeWriter OutputPipe => _outputPipe.Writer;
         public PipeReader InputPipe => _inputPipe.Reader;

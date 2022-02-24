@@ -13,12 +13,10 @@ namespace ChatApi
     public sealed class ChatConnection
     {
         private readonly PipelineSocket _pipelineSocket;
-        private readonly uint _maxMessageSize;
 
-        public ChatConnection(PipelineSocket pipelineSocket, uint maxMessageSize = 65536)
+        public ChatConnection(PipelineSocket pipelineSocket)
         {
             _pipelineSocket = pipelineSocket;
-            _maxMessageSize = maxMessageSize;
             MainTask = Task.WhenAll(pipelineSocket.MainTask, HandlePipelineAsync());
         }
 
@@ -79,7 +77,7 @@ namespace ChatApi
                     break;
                 }
                 var lengthPrefix = (uint)signedLengthPrefix;
-                if (lengthPrefix > _maxMessageSize)
+                if (lengthPrefix > _pipelineSocket.MaxMessageSize)
                     throw new InvalidOperationException("Message size too big");
 
                 if (!sequenceReader.TryReadBigEndian(out int messageType))
@@ -93,7 +91,6 @@ namespace ChatApi
                     var chatMessageBytes = new byte[lengthPrefix - 4];
                     if (!sequenceReader.TryCopyTo(chatMessageBytes))
                     {
-                        // TODO: Ensure pipeline has enough room for MaxMessageSize bytes.
                         _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
                         break;
                     }
