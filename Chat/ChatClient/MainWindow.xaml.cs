@@ -55,5 +55,10 @@ namespace ChatClient
                 Log.Text += $"Sent message: {chatMessageTextBox.Text}\n";
             }
         }
+
+        private void Button_Click_2(object sender, RoutedEventArgs e)
+        {
+            _chatConnection?.Complete();
+        }
     }
 }

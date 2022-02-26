@@ -11,6 +11,7 @@
         <TextBlock Height="236" Margin="0,198,0,0" TextWrapping="Wrap" Text="" VerticalAlignment="Top" Name="Log"/>
         <TextBox Name="chatMessageTextBox" HorizontalAlignment="Left" Margin="30,64,0,0" TextWrapping="Wrap" Text="Hello, server!" VerticalAlignment="Top" Width="120"/>
         <Button Content="Send" HorizontalAlignment="Left" Margin="155,64,0,0" VerticalAlignment="Top" Click="Button_Click_1"/>
+        <Button Content="Disconnect" HorizontalAlignment="Left" Height="26" Margin="131,20,0,0" VerticalAlignment="Top" Width="96" Click="Button_Click_2"/>
 
     </Grid>
 </Window>

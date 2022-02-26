@@ -23,14 +23,14 @@ namespace ChatApi
             _pipelineSocket = pipelineSocket;
             _inputChannel = Channel.CreateBounded<IMessage>(4);
             _outputChannel = Channel.CreateBounded<IMessage>(4);
-            MainTask = Task.WhenAll(pipelineSocket.MainTask,
-                PipelineToChannelAsync(),
-                ChannelToPipelineAsync());
+            PipelineToChannelAsync();
+            ChannelToPipelineAsync();
         }
 
         public Socket Socket => _pipelineSocket.Socket;
-        public Task MainTask { get; }
         public IPEndPoint RemoteEndPoint => _pipelineSocket.RemoteEndPoint;
+
+        public void Complete() => _outputChannel.Writer.Complete();
 
         public async Task SendMessage(IMessage message)
         {
@@ -39,41 +39,67 @@ namespace ChatApi
 
         public IAsyncEnumerable<IMessage> InputMessages => _inputChannel.Reader.ReadAllAsync();
 
-        private async Task ChannelToPipelineAsync()
+        private void Close(Exception? exception = null)
         {
-            await foreach (var message in _outputChannel.Reader.ReadAllAsync())
-            {
-                if (message is ChatMessage chatMessage)
-                {
-                    var messageBytes = Encoding.UTF8.GetBytes(chatMessage.Text);
-                    var memory = _pipelineSocket.OutputPipe.GetMemory(messageBytes.Length + 8);
-                    BinaryPrimitives.WriteUInt32BigEndian(memory.Span, (uint)messageBytes.Length + 4);
-                    BinaryPrimitives.WriteUInt32BigEndian(memory.Span.Slice(4), 0);
-                    messageBytes.CopyTo(memory.Span.Slice(8));
-                    _pipelineSocket.OutputPipe.Advance(messageBytes.Length + 8);
-                }
-                else
-                {
-                    throw new InvalidOperationException("Unknown message type.");
-                }
-
-                await _pipelineSocket.OutputPipe.FlushAsync();
-            }
-
+            _inputChannel.Writer.TryComplete(exception);
+            _pipelineSocket.OutputPipe.CancelPendingFlush();
             _pipelineSocket.OutputPipe.Complete();
         }
 
-        private async Task PipelineToChannelAsync()
+        private async void ChannelToPipelineAsync()
         {
-            while (true)
+            try
             {
-                var data = await _pipelineSocket.InputPipe.ReadAsync();
+                await foreach (var message in _outputChannel.Reader.ReadAllAsync())
+                {
+                    if (message is ChatMessage chatMessage)
+                    {
+                        var messageBytes = Encoding.UTF8.GetBytes(chatMessage.Text);
+                        var memory = _pipelineSocket.OutputPipe.GetMemory(messageBytes.Length + 8);
+                        BinaryPrimitives.WriteUInt32BigEndian(memory.Span, (uint)messageBytes.Length + 4);
+                        BinaryPrimitives.WriteUInt32BigEndian(memory.Span.Slice(4), 0);
+                        messageBytes.CopyTo(memory.Span.Slice(8));
+                        _pipelineSocket.OutputPipe.Advance(messageBytes.Length + 8);
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException("Unknown message type.");
+                    }
 
-                foreach (var message in ParseMessages(data.Buffer))
-                    await _inputChannel.Writer.WriteAsync(message);
+                    var flushResult = await _pipelineSocket.OutputPipe.FlushAsync();
+                    if (flushResult.IsCanceled)
+                        break;
+                }
 
-                if (data.IsCompleted)
-                    break;
+                Close();
+            }
+            catch (Exception exception)
+            {
+                Close(exception);
+            }
+        }
+
+        private async void PipelineToChannelAsync()
+        {
+            try
+            {
+                while (true)
+                {
+                    var data = await _pipelineSocket.InputPipe.ReadAsync();
+
+                    foreach (var message in ParseMessages(data.Buffer))
+                        await _inputChannel.Writer.WriteAsync(message);
+
+                    if (data.IsCompleted)
+                    {
+                        Close();
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Close(ex);
             }
         }
 

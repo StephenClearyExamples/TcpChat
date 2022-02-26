@@ -9,6 +9,7 @@ namespace ChatApi
     {
         private readonly Pipe _outputPipe;
         private readonly Pipe _inputPipe;
+        private readonly TaskCompletionSource<object> _completion;
 
         public PipelineSocket(Socket connectedSocket, uint maxMessageSize = 65536)
         {
@@ -17,15 +18,13 @@ namespace ChatApi
             MaxMessageSize = maxMessageSize;
             _outputPipe = new Pipe();
             _inputPipe = new Pipe(new PipeOptions(pauseWriterThreshold: maxMessageSize + 4));
+            _completion = new TaskCompletionSource<object>();
 
-            MainTask = Task.WhenAll(
-                PipelineToSocketAsync(_outputPipe.Reader, Socket),
-                SocketToPipelineAsync(Socket, _inputPipe.Writer));
+            PipelineToSocketAsync(_outputPipe.Reader, Socket);
+            SocketToPipelineAsync(Socket, _inputPipe.Writer);
         }
 
         public Socket Socket { get; }
-
-        public Task MainTask { get; }
 
         public uint MaxMessageSize { get; }
 
@@ -34,48 +33,86 @@ namespace ChatApi
         public PipeWriter OutputPipe => _outputPipe.Writer;
         public PipeReader InputPipe => _inputPipe.Reader;
 
-        private async Task SocketToPipelineAsync(Socket socket, PipeWriter pipeWriter)
+        private void Close(Exception? exception = null)
         {
-            while (true)
+            if (exception != null)
             {
-                var buffer = pipeWriter.GetMemory();
-                var bytesRead = await socket.ReceiveAsync(buffer, SocketFlags.None);
-                if (bytesRead == 0) // Graceful close
-                {
-                    pipeWriter.Complete();
-                    break;
-                }
+                if (_completion.TrySetException(exception))
+                    _inputPipe.Writer.Complete(exception);
+            }
+            else
+            {
+                if (_completion.TrySetResult(null!))
+                    _inputPipe.Writer.Complete();
+            }
 
-                pipeWriter.Advance(bytesRead);
-                await pipeWriter.FlushAsync();
+            try
+            {
+                Socket.Shutdown(SocketShutdown.Both);
+                Socket.Close();
+            }
+            catch
+            {
+                // Ignore
             }
         }
 
-        private async Task PipelineToSocketAsync(PipeReader pipeReader, Socket socket)
+        private async void SocketToPipelineAsync(Socket socket, PipeWriter pipeWriter)
         {
-            while (true)
+            try
             {
-                ReadResult result = await pipeReader.ReadAsync();
-                ReadOnlySequence<byte> buffer = result.Buffer;
-
                 while (true)
                 {
-                    var memory = buffer.First;
-                    if (memory.IsEmpty)
+                    var buffer = pipeWriter.GetMemory();
+                    var bytesRead = await socket.ReceiveAsync(buffer, SocketFlags.None);
+                    if (bytesRead == 0) // Graceful close
+                    {
+                        Close();
                         break;
-                    var bytesSent = await socket.SendAsync(memory, SocketFlags.None);
-                    buffer = buffer.Slice(bytesSent);
-                    if (bytesSent != memory.Length)
-                        break;
+                    }
+
+                    pipeWriter.Advance(bytesRead);
+                    await pipeWriter.FlushAsync();
                 }
+            }
+            catch (Exception ex)
+            {
+                Close(ex);
+            }
+        }
 
-                pipeReader.AdvanceTo(buffer.Start);
-
-                if (result.IsCompleted)
+        private async void PipelineToSocketAsync(PipeReader pipeReader, Socket socket)
+        {
+            try
+            {
+                while (true)
                 {
-                    socket.Close();
-                    break;
+                    ReadResult result = await pipeReader.ReadAsync();
+                    ReadOnlySequence<byte> buffer = result.Buffer;
+
+                    while (true)
+                    {
+                        var memory = buffer.First;
+                        if (memory.IsEmpty)
+                            break;
+                        var bytesSent = await socket.SendAsync(memory, SocketFlags.None);
+                        buffer = buffer.Slice(bytesSent);
+                        if (bytesSent != memory.Length)
+                            break;
+                    }
+
+                    pipeReader.AdvanceTo(buffer.Start);
+
+                    if (result.IsCompleted)
+                    {
+                        Close();
+                        break;
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                Close(ex);
             }
         }
     }
