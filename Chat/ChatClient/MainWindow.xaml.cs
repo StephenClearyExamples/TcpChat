@@ -41,6 +41,9 @@ namespace ChatClient
             Log.Text += $"Connected to {clientSocket.RemoteEndPoint}\n";
 
             _chatConnection = new ChatConnection(new PipelineSocket(clientSocket));
+
+            // TODO: fix discard
+            _ = ProcessSocket(_chatConnection);
         }
 
         private async void Button_Click_1(object sender, RoutedEventArgs e)
@@ -51,7 +54,7 @@ namespace ChatClient
             }
             else
             {
-                await _chatConnection.SendMessage(new ChatMessage(chatMessageTextBox.Text));
+                await _chatConnection.SendMessageAsync(new ChatMessage(chatMessageTextBox.Text));
                 Log.Text += $"Sent message: {chatMessageTextBox.Text}\n";
             }
         }
@@ -59,6 +62,28 @@ namespace ChatClient
         private void Button_Click_2(object sender, RoutedEventArgs e)
         {
             _chatConnection?.Complete();
+        }
+
+        private async Task ProcessSocket(ChatConnection chatConnection)
+        {
+            try
+            {
+                await foreach (var message in chatConnection.InputMessages)
+                {
+                    if (message is BroadcastMessage broadcastMessage)
+                    {
+                        Log.Text += $"{broadcastMessage.From}: {broadcastMessage.Text}\n";
+                    }
+                    else
+                        Log.Text += $"Got unknown message from {chatConnection.RemoteEndPoint}.\n";
+                }
+
+                Log.Text += $"Connection at {chatConnection.RemoteEndPoint} was disconnected.\n";
+            }
+            catch (Exception ex)
+            {
+                Log.Text += $"Exception from {chatConnection.RemoteEndPoint}: [{ex.GetType().Name}] {ex.Message}\n";
+            }
         }
     }
 }

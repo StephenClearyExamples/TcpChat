@@ -1,4 +1,4 @@
-# Chat protocol specification
+# Chat protocol specification v0.2
 
 Server listens on port 33333. Each stream is a sequence of messages.
 
@@ -12,7 +12,26 @@ The first 4 bytes of every message is the message type, as a 4-byte big-endian u
 
 ## Message definitions
 
-### Type 0: Chat message
+Any unknown message types should be ignored.
 
-The payload of the message is a UTF-8 encoded string.
+### Type 0: Chat message (Client to Server)
 
+The payload of the message is a UTF-8 encoded string, representing the chat text the client sends to the server.
+
+### Type 1: Broadcast message (Server to Client)
+
+The payload of the message has two fields:
+
+1. `From` - a variable-length short string, representing the source client of the message.
+2. `Text` - the remainder of the message, representing the chat text from the source client.
+
+## Types
+
+### Variable-length Short String
+
+A length-prefixed UTF-8 encoded string where the length prefix is a single-byte unsigned integer.
+
+## Changelog
+
+* v0.2 Added Broadcast message (type 1)
+* v0.1 Initial incomplete version
