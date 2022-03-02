@@ -9,6 +9,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using static ChatApi.MessageSerialization;
 
 namespace ChatApi
 {
@@ -46,40 +47,42 @@ namespace ChatApi
             _pipelineSocket.OutputPipe.Complete();
         }
 
+        private void WriteMessage(IMessage message)
+        {
+            if (message is ChatMessage chatMessage)
+            {
+                var messageLengthPrefixValue = GetMessageLengthPrefixValue(message);
+                var memory = _pipelineSocket.OutputPipe.GetMemory(LengthPrefixLength + messageLengthPrefixValue);
+                SpanWriter writer = new(memory.Span);
+                writer.WriteMessageLengthPrefix((uint)messageLengthPrefixValue);
+                writer.WriteMessageType(0);
+                writer.WriteLongString(chatMessage.Text);
+                _pipelineSocket.OutputPipe.Advance(writer.Position);
+            }
+            else if (message is BroadcastMessage broadcastMessage)
+            {
+                var messageLengthPrefixValue = GetMessageLengthPrefixValue(message);
+                var memory = _pipelineSocket.OutputPipe.GetMemory(LengthPrefixLength + messageLengthPrefixValue);
+                SpanWriter writer = new(memory.Span);
+                writer.WriteMessageLengthPrefix((uint)messageLengthPrefixValue);
+                writer.WriteMessageType(1);
+                writer.WriteShortString(broadcastMessage.From);
+                writer.WriteLongString(broadcastMessage.Text);
+                _pipelineSocket.OutputPipe.Advance(writer.Position);
+            }
+            else
+            {
+                throw new InvalidOperationException("Unknown message type.");
+            }
+        }
+
         private async void ChannelToPipelineAsync()
         {
             try
             {
                 await foreach (var message in _outputChannel.Reader.ReadAllAsync())
                 {
-                    if (message is ChatMessage chatMessage)
-                    {
-                        var textBytes = Encoding.UTF8.GetBytes(chatMessage.Text);
-                        var memory = _pipelineSocket.OutputPipe.GetMemory(4 + 4 + textBytes.Length);
-                        BinaryPrimitives.WriteUInt32BigEndian(memory.Span, (uint)textBytes.Length + 4);
-                        BinaryPrimitives.WriteUInt32BigEndian(memory.Span.Slice(4), 0);
-                        textBytes.CopyTo(memory.Span.Slice(8));
-                        _pipelineSocket.OutputPipe.Advance(textBytes.Length + 8);
-                    }
-                    else if (message is BroadcastMessage broadcastMessage)
-                    {
-                        var fromBytes = Encoding.UTF8.GetBytes(broadcastMessage.From);
-                        if (fromBytes.Length > 255)
-                            throw new InvalidOperationException("From field in BroadcastMessage is too big.");
-                        var textBytes = Encoding.UTF8.GetBytes(broadcastMessage.Text);
-                        var messageLength = 4 + 1 + fromBytes.Length + textBytes.Length;
-                        var memory = _pipelineSocket.OutputPipe.GetMemory(4 + messageLength);
-                        BinaryPrimitives.WriteUInt32BigEndian(memory.Span, (uint)messageLength);
-                        BinaryPrimitives.WriteUInt32BigEndian(memory.Span.Slice(4), 1);
-                        memory.Span[8..][0] = (byte)fromBytes.Length;
-                        fromBytes.CopyTo(memory.Span.Slice(9));
-                        textBytes.CopyTo(memory.Span.Slice(9 + fromBytes.Length));
-                        _pipelineSocket.OutputPipe.Advance(4 + messageLength);
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException("Unknown message type.");
-                    }
+                    WriteMessage(message);
 
                     var flushResult = await _pipelineSocket.OutputPipe.FlushAsync();
                     if (flushResult.IsCanceled)
@@ -143,52 +146,29 @@ namespace ChatApi
 
                 if (messageType == 0)
                 {
-                    var textBytes = new byte[lengthPrefix - 4];
-                    if (!sequenceReader.TryCopyTo(textBytes))
+                    if (!sequenceReader.TryReadLongString(out var text))
                     {
                         _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
                         break;
                     }
 
-                    // Unlike other SequenceReader methods, TryCopyTo does *not* advance the position.
-                    sequenceReader.Advance(textBytes.Length);
-
-                    result.Add(new ChatMessage(Encoding.UTF8.GetString(textBytes)));
+                    result.Add(new ChatMessage(text));
                 }
                 else if (messageType == 1)
                 {
-                    if (!sequenceReader.TryRead(out var fromLength))
+                    if (!sequenceReader.TryReadShortString(out var from))
                     {
                         _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
                         break;
                     }
 
-                    var fromBytes = new byte[fromLength];
-                    if (!sequenceReader.TryCopyTo(fromBytes))
+                    if (!sequenceReader.TryReadLongString(out var text))
                     {
                         _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
                         break;
                     }
-                    else
-                    {
-                        // Unlike other SequenceReader methods, TryCopyTo does *not* advance the position.
-                        sequenceReader.Advance(fromBytes.Length);
-                    }
 
-                    var textBytes = new byte[lengthPrefix - 4 - 1 - fromBytes.Length];
-                    if (!sequenceReader.TryCopyTo(textBytes))
-                    {
-                        _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
-                        break;
-                    }
-                    else
-                    {
-                        // Unlike other SequenceReader methods, TryCopyTo does *not* advance the position.
-                        sequenceReader.Advance(textBytes.Length);
-                    }
-
-                    result.Add(new BroadcastMessage(Encoding.UTF8.GetString(fromBytes),
-                        Encoding.UTF8.GetString(textBytes)));
+                    result.Add(new BroadcastMessage(from, text));
                 }
                 else
                 {

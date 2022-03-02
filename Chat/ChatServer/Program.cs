@@ -41,9 +41,10 @@ async Task ProcessSocket(Socket socket)
 
                 var currentConnections = connections.CurrentConnections;
                 var from = chatConnection.RemoteEndPoint.ToString();
+                var broadcastMessage = new BroadcastMessage(from, chatMessage.Text);
                 var tasks = currentConnections
                     .Where(x => x != chatConnection)
-                    .Select(connection => connection.SendMessageAsync(new BroadcastMessage(from, chatMessage.Text)));
+                    .Select(connection => connection.SendMessageAsync(broadcastMessage));
 
                 try
                 {

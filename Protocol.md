@@ -1,4 +1,4 @@
-# Chat protocol specification v0.2
+# Chat protocol specification v0.3
 
 Server listens on port 33333. Each stream is a sequence of messages.
 
@@ -16,22 +16,29 @@ Any unknown message types should be ignored.
 
 ### Type 0: Chat message (Client to Server)
 
-The payload of the message is a UTF-8 encoded string, representing the chat text the client sends to the server.
+The payload of the message has a single field:
+
+1. `Text` - a long string, representing the chat text the client sends to the server.
 
 ### Type 1: Broadcast message (Server to Client)
 
 The payload of the message has two fields:
 
-1. `From` - a variable-length short string, representing the source client of the message.
-2. `Text` - the remainder of the message, representing the chat text from the source client.
+1. `From` - a short string, representing the source client of the message.
+2. `Text` - a long string, representing the chat text from the source client.
 
 ## Types
 
-### Variable-length Short String
+### Short String
 
 A length-prefixed UTF-8 encoded string where the length prefix is a single-byte unsigned integer.
 
+### Long String
+
+A length-prefixed UTF-8 encoded string where the length prefix is a two-byte big-endian unsigned integer.
+
 ## Changelog
 
+* v0.3 Changed text fields to be long strings
 * v0.2 Added Broadcast message (type 1)
 * v0.1 Initial incomplete version
