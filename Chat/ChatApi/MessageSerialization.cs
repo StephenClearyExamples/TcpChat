@@ -13,7 +13,7 @@ namespace ChatApi
     {
         public const int LengthPrefixLength = sizeof(uint);
 
-        private const int MessageTypeLength = sizeof(uint);
+        public const int MessageTypeLength = sizeof(uint);
         private const int LongStringLengthPrefixLength = sizeof(ushort);
         private const int ShortStringLengthPrefixLength = sizeof(byte);
 

@@ -138,6 +138,12 @@ namespace ChatApi
                 if (lengthPrefix > _pipelineSocket.MaxMessageSize)
                     throw new InvalidOperationException("Message size too big");
 
+                if (sequenceReader.Remaining < lengthPrefix)
+                {
+                    _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
+                    break;
+                }
+
                 if (!sequenceReader.TryReadBigEndian(out int messageType))
                 {
                     _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
@@ -172,7 +178,8 @@ namespace ChatApi
                 }
                 else
                 {
-                    throw new InvalidOperationException("Unknown message type");
+                    // Ignore unknown message types.
+                    sequenceReader.Advance(lengthPrefix - MessageTypeLength);
                 }
 
                 _pipelineSocket.InputPipe.AdvanceTo(sequenceReader.Position);
