@@ -32,6 +32,10 @@ namespace ChatApi
                     ShortStringLengthPrefixLength + fromBytesLength +
                     LongStringLengthPrefixLength + textBytesLength;
             }
+            else if (message is KeepaliveMessage)
+            {
+                return MessageTypeLength;
+            }
             else
             {
                 throw new InvalidOperationException("Unknown message type.");

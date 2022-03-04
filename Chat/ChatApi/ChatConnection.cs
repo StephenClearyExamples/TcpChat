@@ -16,14 +16,20 @@ namespace ChatApi
     public sealed class ChatConnection
     {
         private readonly PipelineSocket _pipelineSocket;
+        private readonly TimeSpan _keepaliveTimeSpan;
         private readonly Channel<IMessage> _inputChannel;
         private readonly Channel<IMessage> _outputChannel;
+        private readonly Timer _timer;
 
-        public ChatConnection(PipelineSocket pipelineSocket)
+        public ChatConnection(PipelineSocket pipelineSocket, TimeSpan keepaliveTimeSpan = default)
         {
+            keepaliveTimeSpan = keepaliveTimeSpan == default ? TimeSpan.FromSeconds(5) : keepaliveTimeSpan;
+
             _pipelineSocket = pipelineSocket;
+            _keepaliveTimeSpan = keepaliveTimeSpan;
             _inputChannel = Channel.CreateBounded<IMessage>(4);
             _outputChannel = Channel.CreateBounded<IMessage>(4);
+            _timer = new Timer(_ => SendKeepaliveMessage(), null, keepaliveTimeSpan, Timeout.InfiniteTimeSpan);
             PipelineToChannelAsync();
             ChannelToPipelineAsync();
         }
@@ -36,12 +42,20 @@ namespace ChatApi
         public async Task SendMessageAsync(IMessage message)
         {
             await _outputChannel.Writer.WriteAsync(message);
+            _timer.Change(_keepaliveTimeSpan, Timeout.InfiniteTimeSpan);
         }
 
         public IAsyncEnumerable<IMessage> InputMessages => _inputChannel.Reader.ReadAllAsync();
 
+        private void SendKeepaliveMessage()
+        {
+            _outputChannel.Writer.TryWrite(new KeepaliveMessage());
+            _timer.Change(_keepaliveTimeSpan, Timeout.InfiniteTimeSpan);
+        }
+
         private void Close(Exception? exception = null)
         {
+            _timer.Dispose();
             _inputChannel.Writer.TryComplete(exception);
             _pipelineSocket.OutputPipe.CancelPendingFlush();
             _pipelineSocket.OutputPipe.Complete();
@@ -68,6 +82,15 @@ namespace ChatApi
                 writer.WriteMessageType(1);
                 writer.WriteShortString(broadcastMessage.From);
                 writer.WriteLongString(broadcastMessage.Text);
+                _pipelineSocket.OutputPipe.Advance(writer.Position);
+            }
+            else if (message is KeepaliveMessage)
+            {
+                var messageLengthPrefixValue = GetMessageLengthPrefixValue(message);
+                var memory = _pipelineSocket.OutputPipe.GetMemory(LengthPrefixLength + messageLengthPrefixValue);
+                SpanWriter writer = new(memory.Span);
+                writer.WriteMessageLengthPrefix((uint)messageLengthPrefixValue);
+                writer.WriteMessageType(2);
                 _pipelineSocket.OutputPipe.Advance(writer.Position);
             }
             else
