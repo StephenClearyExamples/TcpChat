@@ -63,40 +63,12 @@ namespace ChatApi
 
         private void WriteMessage(IMessage message)
         {
-            if (message is ChatMessage chatMessage)
-            {
-                var messageLengthPrefixValue = GetMessageLengthPrefixValue(message);
-                var memory = _pipelineSocket.OutputPipe.GetMemory(LengthPrefixLength + messageLengthPrefixValue);
-                SpanWriter writer = new(memory.Span);
-                writer.WriteMessageLengthPrefix((uint)messageLengthPrefixValue);
-                writer.WriteMessageType(0);
-                writer.WriteLongString(chatMessage.Text);
-                _pipelineSocket.OutputPipe.Advance(writer.Position);
-            }
-            else if (message is BroadcastMessage broadcastMessage)
-            {
-                var messageLengthPrefixValue = GetMessageLengthPrefixValue(message);
-                var memory = _pipelineSocket.OutputPipe.GetMemory(LengthPrefixLength + messageLengthPrefixValue);
-                SpanWriter writer = new(memory.Span);
-                writer.WriteMessageLengthPrefix((uint)messageLengthPrefixValue);
-                writer.WriteMessageType(1);
-                writer.WriteShortString(broadcastMessage.From);
-                writer.WriteLongString(broadcastMessage.Text);
-                _pipelineSocket.OutputPipe.Advance(writer.Position);
-            }
-            else if (message is KeepaliveMessage)
-            {
-                var messageLengthPrefixValue = GetMessageLengthPrefixValue(message);
-                var memory = _pipelineSocket.OutputPipe.GetMemory(LengthPrefixLength + messageLengthPrefixValue);
-                SpanWriter writer = new(memory.Span);
-                writer.WriteMessageLengthPrefix((uint)messageLengthPrefixValue);
-                writer.WriteMessageType(2);
-                _pipelineSocket.OutputPipe.Advance(writer.Position);
-            }
-            else
-            {
-                throw new InvalidOperationException("Unknown message type.");
-            }
+            var messageLengthPrefixValue = GetMessageLengthPrefixValue(message);
+            var memory = _pipelineSocket.OutputPipe.GetMemory(LengthPrefixLength + messageLengthPrefixValue);
+            SpanWriter writer = new(memory.Span);
+            writer.WriteMessageLengthPrefix((uint)messageLengthPrefixValue);
+            writer.WriteMessage(message);
+            _pipelineSocket.OutputPipe.Advance(writer.Position);
         }
 
         private async void ChannelToPipelineAsync()
@@ -152,58 +124,16 @@ namespace ChatApi
             while (sequenceReader.Remaining != 0)
             {
                 var beginOfMessagePosition = sequenceReader.Position;
-                if (!sequenceReader.TryReadBigEndian(out int signedLengthPrefix))
-                {
-                    _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
-                    break;
-                }
-                var lengthPrefix = (uint)signedLengthPrefix;
-                if (lengthPrefix > _pipelineSocket.MaxMessageSize)
-                    throw new InvalidOperationException("Message size too big");
 
-                if (sequenceReader.Remaining < lengthPrefix)
+                if (!sequenceReader.TryReadMessage(_pipelineSocket.MaxMessageSize, out var message))
                 {
                     _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
                     break;
                 }
 
-                if (!sequenceReader.TryReadBigEndian(out int messageType))
-                {
-                    _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
-                    break;
-                }
-
-                if (messageType == 0)
-                {
-                    if (!sequenceReader.TryReadLongString(out var text))
-                    {
-                        _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
-                        break;
-                    }
-
-                    result.Add(new ChatMessage(text));
-                }
-                else if (messageType == 1)
-                {
-                    if (!sequenceReader.TryReadShortString(out var from))
-                    {
-                        _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
-                        break;
-                    }
-
-                    if (!sequenceReader.TryReadLongString(out var text))
-                    {
-                        _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
-                        break;
-                    }
-
-                    result.Add(new BroadcastMessage(from, text));
-                }
-                else
-                {
-                    // Ignore unknown message types.
-                    sequenceReader.Advance(lengthPrefix - MessageTypeLength);
-                }
+                // Ignore unknown message types. (`message` == `null`)
+                if (message != null)
+                    result.Add(message);
 
                 _pipelineSocket.InputPipe.AdvanceTo(sequenceReader.Position);
             }

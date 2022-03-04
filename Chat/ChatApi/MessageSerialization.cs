@@ -42,6 +42,60 @@ namespace ChatApi
             }
         }
 
+        public static bool TryReadMessage(ref this SequenceReader<byte> sequenceReader, uint maxMessageSize,
+            out IMessage? message)
+        {
+            message = null;
+            if (!sequenceReader.TryReadLengthPrefix(out var lengthPrefix))
+                return false;
+
+            if (lengthPrefix > maxMessageSize)
+                throw new InvalidOperationException("Message size too big");
+
+            if (sequenceReader.Remaining < lengthPrefix)
+                return false;
+
+            if (!sequenceReader.TryReadMessageType(out int messageType))
+                return false;
+
+            if (messageType == 0)
+            {
+                if (!sequenceReader.TryReadLongString(out var text))
+                    return false;
+
+                message = new ChatMessage(text);
+                return true;
+            }
+            else if (messageType == 1)
+            {
+                if (!sequenceReader.TryReadShortString(out var from))
+                    return false;
+
+                if (!sequenceReader.TryReadLongString(out var text))
+                    return false;
+
+                message = new BroadcastMessage(from, text);
+                return true;
+            }
+            else
+            {
+                // `message` is `null` for unrecognized messages.
+                sequenceReader.Advance(lengthPrefix - MessageTypeLength);
+                return true;
+            }
+        }
+
+        public static bool TryReadMessageType(ref this SequenceReader<byte> sequenceReader,
+            [NotNullWhen(true)] out int value) => sequenceReader.TryReadBigEndian(out value);
+
+        public static bool TryReadLengthPrefix(ref this SequenceReader<byte> sequenceReader,
+            [NotNullWhen(true)] out uint value)
+        {
+            var result = sequenceReader.TryReadBigEndian(out int signedValue);
+            value = (uint)signedValue;
+            return result;
+        }
+
         public static bool TryReadLongString(ref this SequenceReader<byte> sequenceReader,
             [NotNullWhen(true)] out string? value)
         {
@@ -92,22 +146,46 @@ namespace ChatApi
 
             public int Position => _position;
 
-            public void WriteMessageLengthPrefix(uint value) => WriteUInt32BigEndian(value);
-            public void WriteMessageType(uint value) => WriteUInt32BigEndian(value);
+            public void WriteMessage(IMessage message)
+            {
+                if (message is ChatMessage chatMessage)
+                {
+                    WriteMessageType(0);
+                    WriteLongString(chatMessage.Text);
+                }
+                else if (message is BroadcastMessage broadcastMessage)
+                {
+                    WriteMessageType(1);
+                    WriteShortString(broadcastMessage.From);
+                    WriteLongString(broadcastMessage.Text);
+                }
+                else if (message is KeepaliveMessage)
+                {
+                    WriteMessageType(2);
+                }
+                else
+                {
+                    throw new InvalidOperationException("Unknown message type.");
+                }
+            }
 
-            public void WriteUInt32BigEndian(uint value)
+            public void WriteMessageLengthPrefix(uint value) => WriteUInt32BigEndian(value);
+
+            private void WriteMessageType(uint value) => WriteUInt32BigEndian(value);
+
+            private void WriteUInt32BigEndian(uint value)
             {
                 BinaryPrimitives.WriteUInt32BigEndian(_span.Slice(_position, sizeof(uint)), value);
                 _position += sizeof(uint);
             }
 
-            public void WriteUInt16BigEndian(ushort value)
+            private void WriteUInt16BigEndian(ushort value)
             {
                 BinaryPrimitives.WriteUInt16BigEndian(_span.Slice(_position, sizeof(ushort)), value);
                 _position += sizeof(ushort);
             }
 
-            public void WriteLongString(string value)
+            private void WriteLongString(string value)
             {
                 var bytes = Encoding.UTF8.GetBytes(value);
                 if (bytes.Length > ushort.MaxValue)
@@ -116,7 +194,7 @@ namespace ChatApi
                 WriteByteArray(bytes);
             }
 
-            public void WriteShortString(string value)
+            private void WriteShortString(string value)
             {
                 var bytes = Encoding.UTF8.GetBytes(value);
                 if (bytes.Length > byte.MaxValue)
@@ -125,9 +203,9 @@ namespace ChatApi
                 WriteByteArray(bytes);
             }
 
-            public void WriteByte(byte value) => _span[_position++] = value;
+            private void WriteByte(byte value) => _span[_position++] = value;
 
-            public void WriteByteArray(ReadOnlySpan<byte> value)
+            private void WriteByteArray(ReadOnlySpan<byte> value)
             {
                 value.CopyTo(_span.Slice(_position, value.Length));
                 _position += value.Length;
