@@ -35,8 +35,9 @@ When received, this message should be ignored.
 
 ### Type 3: Set Nickname Request (Client to Server)
 
-The payload has one field:
+The payload has two fields:
 
+1. `RequestId` - a GUID, indentifying this request.
 1. `Nickname` - a short string, identifying the current client.
 
 The server should respond with an Ack or Nak.
@@ -45,13 +46,21 @@ If the server responds with an Ack, then all future Broadcast messages from this
 
 ### Type 4: Ack Response (bidirectional)
 
-No payload. The message length prefix is always 4.
+The payload has one field:
+
+1. `RequestId` - a GUID, indentifying the request this response is for.
 
 ### Type 5: Nak Response (bidirectional)
 
-No payload. The message length prefix is always 4.
+The payload has one field:
+
+1. `RequestId` - a GUID, indentifying the request this response is for.
 
 ## Types
+
+### GUID
+
+A 16-byte binary value.
 
 ### Short String
 

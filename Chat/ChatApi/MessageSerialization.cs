@@ -17,6 +17,7 @@ namespace ChatApi
         public const int MessageTypeLength = sizeof(uint);
         private const int LongStringLengthPrefixLength = sizeof(ushort);
         private const int ShortStringLengthPrefixLength = sizeof(byte);
+        private const int GuidLength = 16;
 
         public static int GetMessageLengthPrefixValue(IMessage message)
         {
@@ -32,9 +33,15 @@ namespace ChatApi
             }
             else if (message is SetNicknameRequestMessage setNicknameRequestMessage)
             {
-                return MessageTypeLength + ShortStringFieldLength(setNicknameRequestMessage.Nickname);
+                return MessageTypeLength +
+                    GuidLength +
+                    ShortStringFieldLength(setNicknameRequestMessage.Nickname);
             }
-            else if (message is KeepaliveMessage or AckResponseMessage or NakResponseMessage)
+            else if (message is AckResponseMessage or NakResponseMessage)
+            {
+                return MessageTypeLength + GuidLength;
+            }
+            else if (message is KeepaliveMessage)
             {
                 return MessageTypeLength;
             }
@@ -86,19 +93,25 @@ namespace ChatApi
             }
             else if (messageType == 3)
             {
+                if (!sequenceReader.TryReadGuid(out var requestId))
+                    return false;
                 if (!sequenceReader.TryReadShortString(out var nickname))
                     return false;
-                message = new SetNicknameRequestMessage(nickname);
+                message = new SetNicknameRequestMessage(requestId.Value, nickname);
                 return true;
             }
             else if (messageType == 4)
             {
-                message = new AckResponseMessage();
+                if (!sequenceReader.TryReadGuid(out var requestId))
+                    return false;
+                message = new AckResponseMessage(requestId.Value);
                 return true;
             }
             else if (messageType == 5)
             {
-                message = new NakResponseMessage();
+                if (!sequenceReader.TryReadGuid(out var requestId))
+                    return false;
+                message = new NakResponseMessage(requestId.Value);
                 return true;
             }
             else
@@ -128,12 +141,8 @@ namespace ChatApi
                 return false;
             var length = (ushort)signedLength;
 
-            var bytes = new byte[length];
-            if (!sequenceReader.TryCopyTo(bytes))
+            if (!sequenceReader.TryReadByteArray(length, out var bytes))
                 return false;
-
-            // Unlike other SequenceReader methods, TryCopyTo does *not* advance the position.
-            sequenceReader.Advance(length);
 
             value = Encoding.UTF8.GetString(bytes);
             return true;
@@ -146,14 +155,35 @@ namespace ChatApi
             if (!sequenceReader.TryRead(out var length))
                 return false;
 
-            var bytes = new byte[length];
-            if (!sequenceReader.TryCopyTo(bytes))
+            if (!sequenceReader.TryReadByteArray(length, out var bytes))
+                return false;
+
+            value = Encoding.UTF8.GetString(bytes);
+            return true;
+        }
+
+        public static bool TryReadGuid(ref this SequenceReader<byte> sequenceReader,
+            [NotNullWhen(true)] out Guid? value)
+        {
+            value = null;
+
+            if (!sequenceReader.TryReadByteArray(GuidLength, out var bytes))
+                return false;
+
+            value = new Guid(bytes);
+            return true;
+        }
+
+        public static bool TryReadByteArray(ref this SequenceReader<byte> sequenceReader,
+            int length,
+            [NotNullWhen(true)] out byte[]? value)
+        {
+            value = new byte[length];
+            if (!sequenceReader.TryCopyTo(value))
                 return false;
 
             // Unlike other SequenceReader methods, TryCopyTo does *not* advance the position.
             sequenceReader.Advance(length);
-
-            value = Encoding.UTF8.GetString(bytes);
             return true;
         }
 
@@ -186,25 +216,30 @@ namespace ChatApi
                 else if (message is SetNicknameRequestMessage setNicknameRequestMessage)
                 {
                     WriteMessageType(3);
+                    WriteGuid(setNicknameRequestMessage.RequestId);
                     WriteShortString(setNicknameRequestMessage.Nickname);
+                }
+                else if (message is AckResponseMessage ackResponseMessage)
+                {
+                    WriteMessageType(4);
+                    WriteGuid(ackResponseMessage.RequestId);
+                }
+                else if (message is NakResponseMessage nakResponseMessage)
+                {
+                    WriteMessageType(5);
+                    WriteGuid(nakResponseMessage.RequestId);
                 }
                 else if (message is KeepaliveMessage)
                 {
                     WriteMessageType(2);
-                }
-                else if (message is AckResponseMessage)
-                {
-                    WriteMessageType(4);
-                }
-                else if (message is NakResponseMessage)
-                {
-                    WriteMessageType(5);
                 }
                 else
                 {
                     throw new InvalidOperationException("Unknown message type.");
                 }
             }
+
+            public void WriteGuid(Guid value) => WriteByteArray(value.ToByteArray());
 
             public void WriteMessageLengthPrefix(uint value) => WriteUInt32BigEndian(value);
 

@@ -63,11 +63,11 @@ async Task ProcessSocket(Socket socket)
 
                 if (connections.TrySetNickname(chatConnection, setNicknameRequestMessage.Nickname))
                 {
-                    await chatConnection.SendMessageAsync(new AckResponseMessage());
+                    await chatConnection.SendMessageAsync(new AckResponseMessage(setNicknameRequestMessage.RequestId));
                 }
                 else
                 {
-                    await chatConnection.SendMessageAsync(new NakResponseMessage());
+                    await chatConnection.SendMessageAsync(new NakResponseMessage(setNicknameRequestMessage.RequestId));
                 }
             }
             else

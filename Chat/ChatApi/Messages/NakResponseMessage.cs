@@ -8,5 +8,11 @@ namespace ChatApi.Messages
 {
     public sealed class NakResponseMessage : IMessage
     {
+        public NakResponseMessage(Guid requestId)
+        {
+            RequestId = requestId;
+        }
+
+        public Guid RequestId { get; }
     }
 }

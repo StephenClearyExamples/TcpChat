@@ -75,13 +75,13 @@ namespace ChatClient
                     {
                         Chat.Text += $"{broadcastMessage.From}: {broadcastMessage.Text}\n";
                     }
-                    else if (message is AckResponseMessage)
+                    else if (message is AckResponseMessage ackResponseMessage)
                     {
-                        Log.Text += $"Got ack from {chatConnection.RemoteEndPoint}.\n";
+                        Log.Text += $"Got ack from {chatConnection.RemoteEndPoint} for request {ackResponseMessage.RequestId}.\n";
                     }
-                    else if (message is NakResponseMessage)
+                    else if (message is NakResponseMessage nakResponseMessage)
                     {
-                        Log.Text += $"Got nak from {chatConnection.RemoteEndPoint}.\n";
+                        Log.Text += $"Got nak from {chatConnection.RemoteEndPoint} for request {nakResponseMessage.RequestId}.\n";
                     }
                     else
                         Log.Text += $"Got unknown message from {chatConnection.RemoteEndPoint}.\n";
@@ -103,8 +103,9 @@ namespace ChatClient
             }
             else
             {
-                await _chatConnection.SendMessageAsync(new SetNicknameRequestMessage(nicknameTextBox.Text));
-                Log.Text += $"Sent nickname request for {nicknameTextBox.Text}\n";
+                var message = new SetNicknameRequestMessage(Guid.NewGuid(), nicknameTextBox.Text);
+                await _chatConnection.SendMessageAsync(message);
+                Log.Text += $"Sent nickname request {message.RequestId} for {message.Nickname}\n";
             }
         }
     }
