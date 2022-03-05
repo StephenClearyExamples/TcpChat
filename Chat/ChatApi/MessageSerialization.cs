@@ -37,9 +37,15 @@ namespace ChatApi
                     GuidLength +
                     ShortStringFieldLength(setNicknameRequestMessage.Nickname);
             }
-            else if (message is AckResponseMessage or NakResponseMessage)
+            else if (message is AckResponseMessage)
             {
                 return MessageTypeLength + GuidLength;
+            }
+            else if (message is NakResponseMessage nakResponseMessage)
+            {
+                return MessageTypeLength +
+                    GuidLength +
+                    LongStringFieldLength(nakResponseMessage.Message);
             }
             else if (message is KeepaliveMessage)
             {
@@ -116,7 +122,9 @@ namespace ChatApi
             {
                 if (!sequenceReader.TryReadGuid(out var requestId))
                     return false;
-                message = new NakResponseMessage(requestId.Value);
+                if (!sequenceReader.TryReadLongString(out var messageField))
+                    return false;
+                message = new NakResponseMessage(requestId.Value, messageField);
                 return true;
             }
             else
@@ -233,6 +241,7 @@ namespace ChatApi
                 {
                     WriteMessageType(5);
                     WriteGuid(nakResponseMessage.RequestId);
+                    WriteLongString(nakResponseMessage.Message);
                 }
                 else if (message is KeepaliveMessage)
                 {

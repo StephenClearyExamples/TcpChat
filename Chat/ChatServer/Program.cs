@@ -67,7 +67,7 @@ async Task ProcessSocket(Socket socket)
                 }
                 else
                 {
-                    await chatConnection.SendMessageAsync(new NakResponseMessage(setNicknameRequestMessage.RequestId));
+                    await chatConnection.SendMessageAsync(new NakResponseMessage(setNicknameRequestMessage.RequestId, "Nickname already taken."));
                 }
             }
             else

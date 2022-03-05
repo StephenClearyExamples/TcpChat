@@ -55,6 +55,7 @@ The payload has one field:
 The payload has one field:
 
 1. `RequestId` - a GUID, indentifying the request this response is for.
+2. `Messages` - a Long String, explaining why the request was rejected.
 
 ## Types
 

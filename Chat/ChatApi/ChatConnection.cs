@@ -141,7 +141,7 @@ namespace ChatApi
                                 throw new InvalidOperationException("Protocol violation.");
                             }
 
-                            tcs.TrySetException(new Exception("Request was rejected."));
+                            tcs.TrySetException(new Exception(nakResponseMessage.Message));
                         }
                         else
                         {
