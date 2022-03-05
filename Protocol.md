@@ -1,4 +1,4 @@
-# Chat protocol specification v0.4
+# Chat protocol specification v0.5
 
 Server listens on port 33333. Each stream is a sequence of messages.
 
@@ -33,6 +33,24 @@ No payload. The message length prefix is always 4.
 
 When received, this message should be ignored.
 
+### Type 3: Set Nickname Request (Client to Server)
+
+The payload has one field:
+
+1. `Nickname` - a short string, identifying the current client.
+
+The server should respond with an Ack or Nak.
+
+If the server responds with an Ack, then all future Broadcast messages from this client should use the `Nickname` as the `From` field.
+
+### Type 4: Ack Response (bidirectional)
+
+No payload. The message length prefix is always 4.
+
+### Type 5: Nak Response (bidirectional)
+
+No payload. The message length prefix is always 4.
+
 ## Types
 
 ### Short String
@@ -45,6 +63,7 @@ A length-prefixed UTF-8 encoded string where the length prefix is a two-byte big
 
 ## Changelog
 
+* v0.5 Add SetNickname, Ack, Nak
 * v0.4 Added keepalive message
 * v0.3 Changed text fields to be long strings
 * v0.2 Added Broadcast message (type 1)

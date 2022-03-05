@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace ChatApi
+namespace ChatApi.Messages
 {
     public sealed class ChatMessage : IMessage
     {

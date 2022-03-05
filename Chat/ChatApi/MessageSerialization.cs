@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ChatApi.Messages;
+using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
@@ -21,18 +22,19 @@ namespace ChatApi
         {
             if (message is ChatMessage chatMessage)
             {
-                var textBytesLength = Encoding.UTF8.GetByteCount(chatMessage.Text);
-                return MessageTypeLength + LongStringLengthPrefixLength + textBytesLength;
+                return MessageTypeLength + LongStringFieldLength(chatMessage.Text);
             }
             else if (message is BroadcastMessage broadcastMessage)
             {
-                var fromBytesLength = Encoding.UTF8.GetByteCount(broadcastMessage.From);
-                var textBytesLength = Encoding.UTF8.GetByteCount(broadcastMessage.Text);
                 return MessageTypeLength +
-                    ShortStringLengthPrefixLength + fromBytesLength +
-                    LongStringLengthPrefixLength + textBytesLength;
+                    ShortStringFieldLength(broadcastMessage.From) +
+                    LongStringFieldLength(broadcastMessage.Text);
             }
-            else if (message is KeepaliveMessage)
+            else if (message is SetNicknameRequestMessage setNicknameRequestMessage)
+            {
+                return MessageTypeLength + ShortStringFieldLength(setNicknameRequestMessage.Nickname);
+            }
+            else if (message is KeepaliveMessage or AckResponseMessage or NakResponseMessage)
             {
                 return MessageTypeLength;
             }
@@ -40,6 +42,11 @@ namespace ChatApi
             {
                 throw new InvalidOperationException("Unknown message type.");
             }
+
+            int ShortStringFieldLength(string value) =>
+                ShortStringLengthPrefixLength + Encoding.UTF8.GetByteCount(value);
+            int LongStringFieldLength(string value) =>
+                LongStringLengthPrefixLength + Encoding.UTF8.GetByteCount(value);
         }
 
         public static bool TryReadMessage(ref this SequenceReader<byte> sequenceReader, uint maxMessageSize,
@@ -75,6 +82,23 @@ namespace ChatApi
                     return false;
 
                 message = new BroadcastMessage(from, text);
+                return true;
+            }
+            else if (messageType == 3)
+            {
+                if (!sequenceReader.TryReadShortString(out var nickname))
+                    return false;
+                message = new SetNicknameRequestMessage(nickname);
+                return true;
+            }
+            else if (messageType == 4)
+            {
+                message = new AckResponseMessage();
+                return true;
+            }
+            else if (messageType == 5)
+            {
+                message = new NakResponseMessage();
                 return true;
             }
             else
@@ -159,9 +183,22 @@ namespace ChatApi
                     WriteShortString(broadcastMessage.From);
                     WriteLongString(broadcastMessage.Text);
                 }
+                else if (message is SetNicknameRequestMessage setNicknameRequestMessage)
+                {
+                    WriteMessageType(3);
+                    WriteShortString(setNicknameRequestMessage.Nickname);
+                }
                 else if (message is KeepaliveMessage)
                 {
                     WriteMessageType(2);
+                }
+                else if (message is AckResponseMessage)
+                {
+                    WriteMessageType(4);
+                }
+                else if (message is NakResponseMessage)
+                {
+                    WriteMessageType(5);
                 }
                 else
                 {

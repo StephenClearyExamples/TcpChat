@@ -1,5 +1,6 @@
 ﻿// See https://aka.ms/new-console-template for more information
 using ChatApi;
+using ChatApi.Messages;
 using ChatServer;
 using System.Buffers;
 using System.IO.Pipelines;
@@ -29,7 +30,7 @@ while (true)
 async Task ProcessSocket(Socket socket)
 {
     var chatConnection = new ChatConnection(new PipelineSocket(socket));
-    connections.Add(chatConnection);
+    var clientConnection = connections.Add(chatConnection);
 
     try
     {
@@ -40,9 +41,10 @@ async Task ProcessSocket(Socket socket)
                 Console.WriteLine($"Got message from {chatConnection.RemoteEndPoint}: {chatMessage.Text}");
 
                 var currentConnections = connections.CurrentConnections;
-                var from = chatConnection.RemoteEndPoint.ToString();
+                var from = clientConnection.Nickname ?? chatConnection.RemoteEndPoint.ToString();
                 var broadcastMessage = new BroadcastMessage(from, chatMessage.Text);
                 var tasks = currentConnections
+                    .Select(x => x.ChatConnection)
                     .Where(x => x != chatConnection)
                     .Select(connection => connection.SendMessageAsync(broadcastMessage));
 
@@ -53,6 +55,19 @@ async Task ProcessSocket(Socket socket)
                 catch
                 {
                     // ignore
+                }
+            }
+            else if (message is SetNicknameRequestMessage setNicknameRequestMessage)
+            {
+                Console.WriteLine($"Got nickname request message from {chatConnection.RemoteEndPoint}: {setNicknameRequestMessage.Nickname}");
+
+                if (connections.TrySetNickname(chatConnection, setNicknameRequestMessage.Nickname))
+                {
+                    await chatConnection.SendMessageAsync(new AckResponseMessage());
+                }
+                else
+                {
+                    await chatConnection.SendMessageAsync(new NakResponseMessage());
                 }
             }
             else

@@ -1,4 +1,5 @@
 ﻿using ChatApi;
+using ChatApi.Messages;
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
@@ -72,7 +73,15 @@ namespace ChatClient
                 {
                     if (message is BroadcastMessage broadcastMessage)
                     {
-                        Log.Text += $"{broadcastMessage.From}: {broadcastMessage.Text}\n";
+                        Chat.Text += $"{broadcastMessage.From}: {broadcastMessage.Text}\n";
+                    }
+                    else if (message is AckResponseMessage)
+                    {
+                        Log.Text += $"Got ack from {chatConnection.RemoteEndPoint}.\n";
+                    }
+                    else if (message is NakResponseMessage)
+                    {
+                        Log.Text += $"Got nak from {chatConnection.RemoteEndPoint}.\n";
                     }
                     else
                         Log.Text += $"Got unknown message from {chatConnection.RemoteEndPoint}.\n";
@@ -83,6 +92,19 @@ namespace ChatClient
             catch (Exception ex)
             {
                 Log.Text += $"Exception from {chatConnection.RemoteEndPoint}: [{ex.GetType().Name}] {ex.Message}\n";
+            }
+        }
+
+        private async void Button_Click_3(object sender, RoutedEventArgs e)
+        {
+            if (_chatConnection == null)
+            {
+                Log.Text += "No connection!\n";
+            }
+            else
+            {
+                await _chatConnection.SendMessageAsync(new SetNicknameRequestMessage(nicknameTextBox.Text));
+                Log.Text += $"Sent nickname request for {nicknameTextBox.Text}\n";
             }
         }
     }

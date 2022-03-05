@@ -10,13 +10,15 @@ namespace ChatServer
     public sealed class ConnectionCollection
     {
         private readonly object _mutex = new();
-        private readonly List<ChatConnection> _connections = new();
+        private readonly List<ClientChatConnection> _connections = new();
 
-        public void Add(ChatConnection connection)
+        public ClientChatConnection Add(ChatConnection connection)
         {
             lock (_mutex)
             {
-                _connections.Add(connection);
+                var clientConnection = new ClientChatConnection(connection);
+                _connections.Add(clientConnection);
+                return clientConnection;
             }
         }
 
@@ -24,11 +26,30 @@ namespace ChatServer
         {
             lock (_mutex)
             {
-                _connections.Remove(connection);
+                _connections.RemoveAll(x => x.ChatConnection == connection);
             }
         }
 
-        public IReadOnlyCollection<ChatConnection> CurrentConnections
+        public bool TrySetNickname(ChatConnection connection, string nickname)
+        {
+            lock (_mutex)
+            {
+                var clientChatConnection = _connections.FirstOrDefault(x => x.ChatConnection == connection);
+                if (clientChatConnection == null)
+                    return false;
+
+                if (clientChatConnection.Nickname == nickname)
+                    return true;
+
+                if (_connections.Any(x => x.Nickname == nickname))
+                    return false;
+
+                clientChatConnection.Nickname = nickname;
+                return true;
+            }
+        }
+
+        public IReadOnlyCollection<ClientChatConnection> CurrentConnections
         {
             get
             {
