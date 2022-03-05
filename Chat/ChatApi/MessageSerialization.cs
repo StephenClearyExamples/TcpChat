@@ -91,6 +91,11 @@ namespace ChatApi
                 message = new BroadcastMessage(from, text);
                 return true;
             }
+            else if (messageType == 2)
+            {
+                message = new KeepaliveMessage();
+                return true;
+            }
             else if (messageType == 3)
             {
                 if (!sequenceReader.TryReadGuid(out var requestId))

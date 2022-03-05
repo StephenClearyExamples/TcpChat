@@ -2,6 +2,7 @@
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Linq;
@@ -21,6 +22,7 @@ namespace ChatApi
         private readonly Channel<IMessage> _inputChannel;
         private readonly Channel<IMessage> _outputChannel;
         private readonly Timer _timer;
+        private readonly ConcurrentDictionary<Guid, TaskCompletionSource> _outstandingRequests = new();
 
         public ChatConnection(PipelineSocket pipelineSocket, TimeSpan keepaliveTimeSpan = default)
         {
@@ -39,6 +41,20 @@ namespace ChatApi
         public IPEndPoint RemoteEndPoint => _pipelineSocket.RemoteEndPoint;
 
         public void Complete() => _outputChannel.Writer.Complete();
+
+        public Task SetNicknameAsync(string nickname)
+        {
+            var setNicknameRequestMessage = new SetNicknameRequestMessage(Guid.NewGuid(), nickname);
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _outstandingRequests.TryAdd(setNicknameRequestMessage.RequestId, tcs);
+            return SendMessageAndWaitForResponseAsync();
+
+            async Task SendMessageAndWaitForResponseAsync()
+            {
+                await SendMessageAsync(setNicknameRequestMessage);
+                await tcs.Task;
+            }
+        }
 
         public async Task SendMessageAsync(IMessage message)
         {
@@ -102,7 +118,36 @@ namespace ChatApi
                     var data = await _pipelineSocket.InputPipe.ReadAsync();
 
                     foreach (var message in ParseMessages(data.Buffer))
-                        await _inputChannel.Writer.WriteAsync(message);
+                    {
+                        if (message is KeepaliveMessage)
+                        {
+                            // Ignore
+                        }
+                        else if (message is AckResponseMessage ackResponseMessage)
+                        {
+                            if (!_outstandingRequests.TryRemove(ackResponseMessage.RequestId, out var tcs))
+                            {
+                                // The server sent us an ack response for a request we didn't send.
+                                throw new InvalidOperationException("Protocol violation.");
+                            }
+
+                            tcs.TrySetResult();
+                        }
+                        else if (message is NakResponseMessage nakResponseMessage)
+                        {
+                            if (!_outstandingRequests.TryRemove(nakResponseMessage.RequestId, out var tcs))
+                            {
+                                // The server sent us an ack response for a request we didn't send.
+                                throw new InvalidOperationException("Protocol violation.");
+                            }
+
+                            tcs.TrySetException(new Exception("Request was rejected."));
+                        }
+                        else
+                        {
+                            await _inputChannel.Writer.WriteAsync(message);
+                        }
+                    }
 
                     if (data.IsCompleted)
                     {
