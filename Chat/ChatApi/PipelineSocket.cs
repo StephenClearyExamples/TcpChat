@@ -17,7 +17,7 @@ namespace ChatApi
             RemoteEndPoint = (IPEndPoint) connectedSocket.RemoteEndPoint!;
             MaxMessageSize = maxMessageSize;
             _outputPipe = new Pipe();
-            _inputPipe = new Pipe(new PipeOptions(pauseWriterThreshold: maxMessageSize + 4));
+            _inputPipe = new Pipe(new PipeOptions(pauseWriterThreshold: maxMessageSize + MessageSerialization.LengthPrefixLength));
             _completion = new TaskCompletionSource<object>();
 
             PipelineToSocketAsync(_outputPipe.Reader, Socket);
