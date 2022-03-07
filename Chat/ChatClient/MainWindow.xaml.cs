@@ -43,8 +43,7 @@ namespace ChatClient
 
             _chatConnection = new ChatConnection(new PipelineSocket(clientSocket));
 
-            // TODO: fix discard
-            _ = ProcessSocket(_chatConnection);
+            await ProcessSocketAsync(_chatConnection);
         }
 
         private async void Button_Click_1(object sender, RoutedEventArgs e)
@@ -65,7 +64,7 @@ namespace ChatClient
             _chatConnection?.Complete();
         }
 
-        private async Task ProcessSocket(ChatConnection chatConnection)
+        private async Task ProcessSocketAsync(ChatConnection chatConnection)
         {
             try
             {

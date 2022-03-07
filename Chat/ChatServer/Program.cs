@@ -23,11 +23,10 @@ while (true)
     var connectedSocket = await listeningSocket.AcceptAsync();
     Console.WriteLine($"Got a connection from {connectedSocket.RemoteEndPoint} to {connectedSocket.LocalEndPoint}.");
 
-    // TODO: fix discard
-    _ = ProcessSocket(connectedSocket);
+    ProcessSocketMainLoop(connectedSocket);
 }
 
-async Task ProcessSocket(Socket socket)
+async void ProcessSocketMainLoop(Socket socket)
 {
     var chatConnection = new ChatConnection(new PipelineSocket(socket));
     var clientConnection = connections.Add(chatConnection);
