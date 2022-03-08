@@ -6,7 +6,7 @@ There is no such thing as a "simple" TCP/IP application, but this is pretty clos
 
 ## Minimal Correct Implementation
 
-Each socket connection is two unidirectional streams of bytes.
+Each socket connection is two unidirectional streams of bytes. A minimal correct implementation consists of:
 
 - Message framing, to translate the streams of bytes to streams of messages.
 - Error handling:
@@ -47,4 +47,7 @@ Each socket connection is two unidirectional streams of bytes.
 ## Tools
 
 - [Process Monitor](https://docs.microsoft.com/en-us/sysinternals/downloads/procmon) to trace socket APIs called by an application.
-- 
+- [TcpView](https://docs.microsoft.com/en-us/sysinternals/downloads/tcpview) to show the state of TCP/IP sockets.
+- [Clumsy](http://jagt.github.io/clumsy/) for simulating network black holes.
+- [Wireshark](https://www.wireshark.org/) for monitoring network traffic.
+  - [Template for custom TCP protocol extension for Wireshark](https://gist.github.com/StephenCleary/20c1f4a55bc80742f022c764e2fc5bc6) to teach Wireshark how to understand your TCP/IP protocol.
