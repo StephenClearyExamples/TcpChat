@@ -106,8 +106,10 @@ namespace ChatApi
                 while (true)
                 {
                     var data = await _pipelineSocket.Input.ReadAsync();
+                    var (messages, consumedPosition) = ParseMessages(data.Buffer);
+                    _pipelineSocket.Input.AdvanceTo(consumedPosition, data.Buffer.End);
 
-                    foreach (var message in ParseMessages(data.Buffer))
+                    foreach (var message in messages)
                     {
                         if (message is KeepaliveMessage)
                         {
@@ -152,7 +154,8 @@ namespace ChatApi
             }
         }
 
-        private IReadOnlyList<IMessage> ParseMessages(ReadOnlySequence<byte> buffer)
+        private (IReadOnlyList<IMessage> Messages, SequencePosition Consumed)
+            ParseMessages(ReadOnlySequence<byte> buffer)
         {
             var result = new List<IMessage>();
             var sequenceReader = new SequenceReader<byte>(buffer);
@@ -170,8 +173,7 @@ namespace ChatApi
                 consumedPosition = sequenceReader.Position;
             }
 
-            _pipelineSocket.Input.AdvanceTo(consumedPosition, buffer.End);
-            return result;
+            return (result, consumedPosition);
         }
     }
 }
