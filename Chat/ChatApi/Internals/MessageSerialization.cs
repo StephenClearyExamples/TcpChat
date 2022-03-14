@@ -4,13 +4,14 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.IO.Pipelines;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace ChatApi
+namespace ChatApi.Internals
 {
-    internal static class MessageSerialization
+    public static class MessageSerialization
     {
         public const int LengthPrefixLength = sizeof(uint);
 
@@ -18,6 +19,16 @@ namespace ChatApi
         private const int LongStringLengthPrefixLength = sizeof(ushort);
         private const int ShortStringLengthPrefixLength = sizeof(byte);
         private const int GuidLength = 16;
+
+        public static void WriteMessage(IMessage message, PipeWriter pipeWriter)
+        {
+            var messageLengthPrefixValue = GetMessageLengthPrefixValue(message);
+            var memory = pipeWriter.GetMemory(LengthPrefixLength + messageLengthPrefixValue);
+            SpanWriter writer = new(memory.Span);
+            writer.WriteMessageLengthPrefix((uint)messageLengthPrefixValue);
+            writer.WriteMessageBody(message);
+            pipeWriter.Advance(writer.Position);
+        }
 
         public static int GetMessageLengthPrefixValue(IMessage message)
         {
@@ -213,7 +224,7 @@ namespace ChatApi
 
             public int Position => _position;
 
-            public void WriteMessage(IMessage message)
+            public void WriteMessageBody(IMessage message)
             {
                 if (message is ChatMessage chatMessage)
                 {

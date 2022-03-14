@@ -11,20 +11,20 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using static ChatApi.MessageSerialization;
+using static ChatApi.Internals.MessageSerialization;
 
 namespace ChatApi
 {
     public sealed class ChatConnection
     {
-        private readonly PipelineSocket _pipelineSocket;
+        private readonly IPipelineSocket _pipelineSocket;
         private readonly TimeSpan _keepaliveTimeSpan;
         private readonly Channel<IMessage> _inputChannel;
         private readonly Channel<IMessage> _outputChannel;
         private readonly Timer _timer;
         private readonly ConcurrentDictionary<Guid, TaskCompletionSource> _outstandingRequests = new();
 
-        public ChatConnection(PipelineSocket pipelineSocket, TimeSpan keepaliveTimeSpan = default)
+        public ChatConnection(IPipelineSocket pipelineSocket, TimeSpan keepaliveTimeSpan = default)
         {
             keepaliveTimeSpan = keepaliveTimeSpan == default ? TimeSpan.FromSeconds(5) : keepaliveTimeSpan;
 
@@ -74,18 +74,8 @@ namespace ChatApi
         {
             _timer.Dispose();
             _inputChannel.Writer.TryComplete(exception);
-            _pipelineSocket.OutputPipe.CancelPendingFlush();
-            _pipelineSocket.OutputPipe.Complete();
-        }
-
-        private void WriteMessage(IMessage message)
-        {
-            var messageLengthPrefixValue = GetMessageLengthPrefixValue(message);
-            var memory = _pipelineSocket.OutputPipe.GetMemory(LengthPrefixLength + messageLengthPrefixValue);
-            SpanWriter writer = new(memory.Span);
-            writer.WriteMessageLengthPrefix((uint)messageLengthPrefixValue);
-            writer.WriteMessage(message);
-            _pipelineSocket.OutputPipe.Advance(writer.Position);
+            _pipelineSocket.Output.CancelPendingFlush();
+            _pipelineSocket.Output.Complete();
         }
 
         private async void ChannelToPipelineAsync()
@@ -94,9 +84,9 @@ namespace ChatApi
             {
                 await foreach (var message in _outputChannel.Reader.ReadAllAsync())
                 {
-                    WriteMessage(message);
+                    WriteMessage(message, _pipelineSocket.Output);
 
-                    var flushResult = await _pipelineSocket.OutputPipe.FlushAsync();
+                    var flushResult = await _pipelineSocket.Output.FlushAsync();
                     if (flushResult.IsCanceled)
                         break;
                 }
@@ -115,7 +105,7 @@ namespace ChatApi
             {
                 while (true)
                 {
-                    var data = await _pipelineSocket.InputPipe.ReadAsync();
+                    var data = await _pipelineSocket.Input.ReadAsync();
 
                     foreach (var message in ParseMessages(data.Buffer))
                     {
@@ -166,24 +156,21 @@ namespace ChatApi
         {
             var result = new List<IMessage>();
             var sequenceReader = new SequenceReader<byte>(buffer);
+            var consumedPosition = sequenceReader.Position;
 
             while (sequenceReader.Remaining != 0)
             {
-                var beginOfMessagePosition = sequenceReader.Position;
-
                 if (!sequenceReader.TryReadMessage(_pipelineSocket.MaxMessageSize, out var message))
-                {
-                    _pipelineSocket.InputPipe.AdvanceTo(beginOfMessagePosition, buffer.End);
                     break;
-                }
 
                 // Ignore unknown message types. (`message` == `null`)
                 if (message != null)
                     result.Add(message);
 
-                _pipelineSocket.InputPipe.AdvanceTo(sequenceReader.Position);
+                consumedPosition = sequenceReader.Position;
             }
 
+            _pipelineSocket.Input.AdvanceTo(consumedPosition, buffer.End);
             return result;
         }
     }

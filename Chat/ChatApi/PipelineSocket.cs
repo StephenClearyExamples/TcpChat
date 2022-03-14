@@ -2,10 +2,11 @@
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
+using static ChatApi.Internals.MessageSerialization;
 
 namespace ChatApi
 {
-    public sealed class PipelineSocket
+    public sealed class PipelineSocket : IPipelineSocket
     {
         private readonly Pipe _outputPipe;
         private readonly Pipe _inputPipe;
@@ -17,7 +18,7 @@ namespace ChatApi
             RemoteEndPoint = (IPEndPoint) connectedSocket.RemoteEndPoint!;
             MaxMessageSize = maxMessageSize;
             _outputPipe = new Pipe();
-            _inputPipe = new Pipe(new PipeOptions(pauseWriterThreshold: maxMessageSize + MessageSerialization.LengthPrefixLength));
+            _inputPipe = new Pipe(new PipeOptions(pauseWriterThreshold: maxMessageSize + LengthPrefixLength));
             _completion = new TaskCompletionSource<object>();
 
             PipelineToSocketAsync(_outputPipe.Reader, Socket);
@@ -30,8 +31,8 @@ namespace ChatApi
 
         public IPEndPoint RemoteEndPoint { get; }
 
-        public PipeWriter OutputPipe => _outputPipe.Writer;
-        public PipeReader InputPipe => _inputPipe.Reader;
+        public PipeWriter Output => _outputPipe.Writer;
+        public PipeReader Input => _inputPipe.Reader;
 
         private void Close(Exception? exception = null)
         {
